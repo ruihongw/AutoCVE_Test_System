@@ -1,0 +1,40 @@
+diff --git a/drivers/net/ethernet/intel/ice/ice_dpll.c b/drivers/net/ethernet/intel/ice/ice_dpll.c
+index 8b13789..a3c4e5f 100644
+--- a/drivers/net/ethernet/intel/ice/ice_dpll.c
++++ b/drivers/net/ethernet/intel/ice/ice_dpll.c
+@@ -520,6 +520,7 @@ ice_dpll_init_rclk_pins(struct ice_pf *pf, struct ice_dpll_pin *pins,
+ {
+ 	struct ice_dpll *de = &pf->dplls;
+ 	int ret = 0;
++	int i;
+ 
+ 	for (i = 0; i < num_pins; i++) {
+ 		ret = ice_dpll_init_pin(pf, &pins[i]);
+@@ -530,10 +531,12 @@ ice_dpll_init_rclk_pins(struct ice_pf *pf, struct ice_dpll_pin *pins,
+ 	return 0;
+ 
+ release_pins:
+-	ice_dpll_release_pins(pins, i);
+-	if (de->rclk_dpll)
+-		dpll_pin_put(de->rclk_dpll);
+-	return ret;
++	while (i-- > 0) {
++		ice_dpll_release_pin(&pins[i]);
++	}
++	if (de->rclk_dpll)
++		dpll_pin_put(de->rclk_dpll);
++	return ret;
+ }
+ 
+ /**
+diff --git a/drivers/net/ethernet/intel/ice/ice_dpll.h b/drivers/net/ethernet/intel/ice/ice_dpll.h
+index 1234567..89abcde 100644
+--- a/drivers/net/ethernet/intel/ice/ice_dpll.h
++++ b/drivers/net/ethernet/intel/ice/ice_dpll.h
+@@ -45,6 +45,7 @@ struct ice_dpll_pin {
+ 
+ void ice_dpll_release_pins(struct ice_dpll_pin *pins, int count);
++void ice_dpll_release_pin(struct ice_dpll_pin *pin);
+ int ice_dpll_init_pin(struct ice_pf *pf, struct ice_dpll_pin *pin);
+ 
+ #endif /* _ICE_DPLL_H_ */
