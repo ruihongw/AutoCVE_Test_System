@@ -11,12 +11,14 @@ import os
 import sys
 from datetime import datetime
 
+from .exceptions import CVEVerifierError
+
 from .models import (
     VerificationReport, VerificationRoute, RiskLevel,
 )
 from .task_parser import TaskParser
 from .smart_router import SmartRouter
-from .code_review_engine import CodeReviewEngine
+from .code_review import CodeReviewEngine
 from .dynamic_test_engine import DynamicTestEngine
 from .report_generator import ReportGenerator
 from .llm_analyzer import LLMAnalyzer, LLMConfig
@@ -388,9 +390,12 @@ def main():
     except FileNotFoundError as e:
         print(f"错误: 文件未找到 — {e}", file=sys.stderr)
         sys.exit(1)
-    except Exception as e:
-        print(f"错误: {e}", file=sys.stderr)
+    except CVEVerifierError as e:
+        print(f"验证错误: {e}", file=sys.stderr)
         sys.exit(2)
+    except Exception as e:
+        print(f"未知错误: {e}", file=sys.stderr)
+        sys.exit(3)
 
 
 if __name__ == "__main__":

@@ -50,7 +50,13 @@ class ReportGenerator:
             self._render_routing_section(report),
         ]
 
-        # 根据验证路径渲染对应章节
+        # 判断是否有 AI 数据（外部 LLM 或需要 AI 会话补充）
+        cr = report.code_review_result
+        has_ai_review = cr and (cr.ai_patch_analyses or cr.ai_regression_assessment)
+        has_ai_conclusion = report.ai_conclusion is not None
+        self._has_any_ai = has_ai_review or has_ai_conclusion
+
+        # 根据验证路径渲染对应章节（AI 分析融入各章节）
         route = report.verification_route
         if route in (VerificationRoute.CODE_REVIEW_ONLY, VerificationRoute.HYBRID):
             sections.append(self._render_code_review_section(report))
@@ -58,17 +64,11 @@ class ReportGenerator:
         if route in (VerificationRoute.DYNAMIC_ONLY, VerificationRoute.HYBRID):
             sections.append(self._render_dynamic_test_section(report))
 
-        # 衍生风险（如果有代码检视结果）
-        if report.code_review_result and report.code_review_result.regression_risks:
+        # 衍生风险（规则引擎 + AI 合并）
+        if route in (VerificationRoute.CODE_REVIEW_ONLY, VerificationRoute.HYBRID):
             sections.append(self._render_regression_risk_section(report))
 
         sections.append(self._render_conclusion(report))
-
-        # AI 深度分析章节 (如果有)
-        ai_section = self._render_ai_analysis_section(report)
-        if ai_section:
-            sections.append(ai_section)
-
         sections.append(self._render_footer(report))
 
         return "\n\n".join(sections)
@@ -182,6 +182,14 @@ class ReportGenerator:
         lines.append(f"**简要摘要**: {cr.summary}")
         lines.append("")
 
+        # 构建 AI 分析的文件路径索引（用于内联匹配）
+        ai_by_file = {}
+        if cr.ai_patch_analyses:
+            for analysis in cr.ai_patch_analyses:
+                fp = analysis.get("_file_path", "")
+                if fp:
+                    ai_by_file[fp] = analysis
+
         # 逐文件评估
         if cr.patch_assessments:
             lines.append("### 逐文件评估")
@@ -198,6 +206,34 @@ class ReportGenerator:
                     for c in pa.concerns:
                         lines.append(f"  - ⚠ {c}")
                 lines.append("")
+
+                # 内联 AI 深度分析（已有外部 LLM 数据时）
+                ai = ai_by_file.get(pa.file_path)
+                if ai:
+                    lines.append("**🤖 AI 深度分析:**")
+                    lines.append("")
+                    fix = ai.get("fix_correctness", {})
+                    if fix:
+                        correct = "✅ 正确" if fix.get("is_correct") else "❌ 待确认"
+                        conf = fix.get("confidence", "")
+                        lines.append(f"- **修复正确性**: {correct} (置信度: {conf})")
+                        if fix.get("reasoning"):
+                            lines.append(f"- **分析**: {fix['reasoning']}")
+                    comp = ai.get("patch_completeness", {})
+                    if comp:
+                        complete = "✅ 完整" if comp.get("is_complete") else "⚠ 不完整"
+                        lines.append(f"- **补丁完整性(AI)**: {complete}")
+                        if comp.get("missing_aspects"):
+                            for m in comp["missing_aspects"]:
+                                lines.append(f"  - 缺失: {m}")
+                    semantic = ai.get("semantic_analysis", "")
+                    if semantic:
+                        lines.append(f"- **语义分析**: {semantic}")
+                    lines.append("")
+                elif not self._has_any_ai:
+                    # 无 AI 数据：插入占位符供 AI 会话填充
+                    lines.append(f"<!-- AI:file_analysis:{pa.file_path} -->")
+                    lines.append("")
 
         return "\n".join(lines)
 
@@ -256,53 +292,96 @@ class ReportGenerator:
         lines = ["## 5. 衍生风险评估（防劣化）", ""]
 
         cr = report.code_review_result
-        if not cr or not cr.regression_risks:
-            lines.append("_未发现衍生风险。_")
+        rule_risks = cr.regression_risks if cr else []
+
+        # 合并 AI 衍生风险（如有外部 LLM 数据）
+        ai_ra = cr.ai_regression_assessment if cr else None
+        ai_risks_data = ai_ra.get("regression_risks", []) if ai_ra else []
+
+        if not rule_risks and not ai_risks_data and not ai_ra:
+            if not self._has_any_ai:
+                lines.append("_规则引擎未发现衍生风险。_")
+                lines.append("")
+                lines.append("<!-- AI:regression_risks -->")
+            else:
+                lines.append("_未发现衍生风险。_")
             return "\n".join(lines)
 
-        lines.append(
-            f"共检出 **{len(cr.regression_risks)}** 条衍生风险，"
-            f"综合风险等级: {self._risk_badge(cr.overall_risk_level)}"
-        )
-        lines.append("")
-
-        # 按风险等级排序
-        sorted_risks = sorted(
-            cr.regression_risks,
-            key=lambda r: {"high": 0, "medium": 1, "low": 2, "none": 3}.get(
-                r.risk_level.value, 4
-            ),
-        )
-
-        lines.append("| # | 等级 | 分类 | 文件 | 描述 |")
-        lines.append("|---|------|------|------|------|")
-        for idx, risk in enumerate(sorted_risks, 1):
+        # 规则引擎风险
+        if rule_risks:
             lines.append(
-                f"| {idx} "
-                f"| {self._risk_badge(risk.risk_level)} "
-                f"| {risk.category} "
-                f"| `{risk.file_path}` "
-                f"| {risk.description} |"
+                f"共检出 **{len(rule_risks)}** 条衍生风险 (规则引擎)，"
+                f"综合风险等级: {self._risk_badge(cr.overall_risk_level)}"
             )
-        lines.append("")
-
-        # 高风险项详细展开
-        high_risks = [
-            r for r in sorted_risks if r.risk_level == RiskLevel.HIGH
-        ]
-        if high_risks:
-            lines.append("### 高风险项详情")
             lines.append("")
-            for r in high_risks:
-                lines.append(f"**[{r.category}] {r.file_path}**")
-                lines.append(f"- 描述: {r.description}")
-                lines.append(f"- 影响范围: {r.affected_scope}")
-                if r.evidence:
-                    lines.append(f"- 证据:")
-                    lines.append(f"  ```")
-                    lines.append(f"  {r.evidence}")
-                    lines.append(f"  ```")
+
+            sorted_risks = sorted(
+                rule_risks,
+                key=lambda r: {"high": 0, "medium": 1, "low": 2, "none": 3}.get(
+                    r.risk_level.value, 4
+                ),
+            )
+
+            lines.append("| # | 等级 | 分类 | 文件 | 描述 |")
+            lines.append("|---|------|------|------|------|")
+            for idx, risk in enumerate(sorted_risks, 1):
+                lines.append(
+                    f"| {idx} "
+                    f"| {self._risk_badge(risk.risk_level)} "
+                    f"| {risk.category} "
+                    f"| `{risk.file_path}` "
+                    f"| {risk.description} |"
+                )
+            lines.append("")
+
+            high_risks = [
+                r for r in sorted_risks if r.risk_level == RiskLevel.HIGH
+            ]
+            if high_risks:
+                lines.append("### 高风险项详情")
                 lines.append("")
+                for r in high_risks:
+                    lines.append(f"**[{r.category}] {r.file_path}**")
+                    lines.append(f"- 描述: {r.description}")
+                    lines.append(f"- 影响范围: {r.affected_scope}")
+                    if r.evidence:
+                        lines.append(f"- 证据:")
+                        lines.append(f"  ```")
+                        lines.append(f"  {r.evidence}")
+                        lines.append(f"  ```")
+                    lines.append("")
+        else:
+            lines.append("规则引擎未检出衍生风险。")
+            lines.append("")
+
+        # 内联 AI 衍生风险评估（已有外部 LLM 数据时）
+        if ai_ra:
+            lines.append("### 🤖 AI 衍生风险评估")
+            lines.append("")
+            if ai_ra.get("overall_risk_assessment"):
+                lines.append(f"**综合评估**: {ai_ra['overall_risk_assessment']}")
+                lines.append("")
+            core = ai_ra.get("core_logic_impact", {})
+            if core:
+                changed = "是" if core.get("is_core_logic_changed") else "否"
+                lines.append(f"**核心逻辑是否变更**: {changed}")
+                if core.get("explanation"):
+                    lines.append(f"- {core['explanation']}")
+                lines.append("")
+            if ai_risks_data:
+                lines.append("| 等级 | 分类 | 描述 | 缓解建议 |")
+                lines.append("|------|------|------|----------|")
+                for r in ai_risks_data:
+                    lines.append(
+                        f"| {r.get('risk_level', '')} | {r.get('category', '')} "
+                        f"| {r.get('description', '')} "
+                        f"| {r.get('mitigation', '')} |"
+                    )
+                lines.append("")
+        elif not self._has_any_ai:
+            # 无 AI 数据：占位符
+            lines.append("<!-- AI:regression_risks -->")
+            lines.append("")
 
         return "\n".join(lines)
 
@@ -322,115 +401,12 @@ class ReportGenerator:
             lines.append("")
             for idx, rec in enumerate(report.recommendations, 1):
                 lines.append(f"{idx}. {rec}")
-
-        return "\n".join(lines)
-
-    # ----------------------------------------------------------------
-    #  AI 深度分析
-    # ----------------------------------------------------------------
-
-    def _render_ai_analysis_section(
-        self, report: VerificationReport
-    ) -> Optional[str]:
-        """渲染 AI 深度分析章节。无 AI 结果时返回 None。"""
-        cr = report.code_review_result
-        has_ai_review = cr and (cr.ai_patch_analyses or cr.ai_regression_assessment)
-        has_ai_conclusion = report.ai_conclusion
-        has_ai_trigger = (
-            report.routing_decision
-            and report.routing_decision.scores.ai_trigger_assessment
-        )
-
-        if not (has_ai_review or has_ai_conclusion or has_ai_trigger):
-            return None
-
-        lines = ["## 7. AI 深度分析 🤖", ""]
-        lines.append("> 以下内容由 LLM 生成，与规则引擎结果互补。")
-        lines.append("")
-
-        # AI 补丁分析
-        if cr and cr.ai_patch_analyses:
-            lines.append("### AI 补丁逻辑分析")
-            lines.append("")
-            for analysis in cr.ai_patch_analyses:
-                fp = analysis.get("_file_path", "未知")
-                lines.append(f"#### `{fp}`")
-                lines.append("")
-
-                fix = analysis.get("fix_correctness", {})
-                if fix:
-                    correct = "✅ 正确" if fix.get("is_correct") else "❌ 待确认"
-                    conf = fix.get("confidence", "")
-                    lines.append(f"- **修复正确性**: {correct} (置信度: {conf})")
-                    if fix.get("reasoning"):
-                        lines.append(f"- **分析**: {fix['reasoning']}")
-                    if fix.get("fix_approach_summary"):
-                        lines.append(f"- **修复手段**: {fix['fix_approach_summary']}")
-
-                comp = analysis.get("patch_completeness", {})
-                if comp:
-                    complete = "✅ 完整" if comp.get("is_complete") else "⚠ 不完整"
-                    lines.append(f"- **补丁完整性**: {complete}")
-                    if comp.get("missing_aspects"):
-                        for m in comp["missing_aspects"]:
-                            lines.append(f"  - 缺失: {m}")
-
-                semantic = analysis.get("semantic_analysis", "")
-                if semantic:
-                    lines.append(f"- **语义分析**: {semantic}")
-
-                lines.append("")
-
-        # AI 衍生风险评估
-        if cr and cr.ai_regression_assessment:
-            ra = cr.ai_regression_assessment
-            lines.append("### AI 衍生风险评估")
             lines.append("")
 
-            if ra.get("overall_risk_assessment"):
-                lines.append(f"**综合评估**: {ra['overall_risk_assessment']}")
-                lines.append("")
-
-            core = ra.get("core_logic_impact", {})
-            if core:
-                changed = "是" if core.get("is_core_logic_changed") else "否"
-                lines.append(f"**核心逻辑是否变更**: {changed}")
-                if core.get("explanation"):
-                    lines.append(f"- {core['explanation']}")
-                lines.append("")
-
-            risks = ra.get("regression_risks", [])
-            if risks:
-                lines.append("| 等级 | 分类 | 描述 | 缓解建议 |")
-                lines.append("|------|------|------|----------|")
-                for r in risks:
-                    level = r.get("risk_level", "未知")
-                    lines.append(
-                        f"| {level} | {r.get('category', '')} "
-                        f"| {r.get('description', '')} "
-                        f"| {r.get('mitigation', '')} |"
-                    )
-                lines.append("")
-
-        # AI 触发可行性
-        if has_ai_trigger:
-            at = report.routing_decision.scores.ai_trigger_assessment
-            tf = at.get("trigger_feasibility", {})
-            lines.append("### AI 触发可行性评估")
-            lines.append("")
-            if tf:
-                lines.append(f"- **可行性得分**: `{tf.get('score', 'N/A')}`")
-                lines.append(f"- **难度**: {tf.get('difficulty', 'N/A')}")
-                lines.append(f"- **分析**: {tf.get('reasoning', '')}")
-            rec_approach = at.get("recommended_verification_approach", "")
-            if rec_approach:
-                lines.append(f"- **AI 推荐验证方式**: {rec_approach}")
-            lines.append("")
-
-        # AI 综合结论
-        if has_ai_conclusion:
-            ac = report.ai_conclusion
-            lines.append("### AI 综合结论")
+        # 内联 AI 综合结论（已有外部 LLM 数据时）
+        ac = report.ai_conclusion
+        if ac:
+            lines.append("### 🤖 AI 综合结论")
             lines.append("")
             verdict = ac.get("overall_verdict", "")
             verdict_map = {
@@ -454,8 +430,22 @@ class ReportGenerator:
             if merge:
                 lines.append(f"- **合入就绪度**: {merge}")
             lines.append("")
+        elif not self._has_any_ai:
+            # 无 AI 数据：占位符
+            lines.append("<!-- AI:conclusion -->")
+            lines.append("")
 
         return "\n".join(lines)
+
+    # ----------------------------------------------------------------
+    #  AI 深度分析
+    # ----------------------------------------------------------------
+
+    def _render_ai_analysis_section(
+        self, report: VerificationReport
+    ) -> Optional[str]:
+        """已废弃 — AI 分析现已融入各章节，保留此方法仅为兼容性。"""
+        return None
 
     # ----------------------------------------------------------------
     #  页脚

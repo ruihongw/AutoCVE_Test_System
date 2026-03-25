@@ -11,7 +11,7 @@ from cve_verifier.models import (
     VerificationTask, CVEMeta, PatchInfo, PatchedFile, DiffHunk,
     AttackVector, Severity, RiskLevel,
 )
-from cve_verifier.code_review_engine import CodeReviewEngine
+from cve_verifier.code_review import CodeReviewEngine
 
 
 class TestCodeReviewEngine(unittest.TestCase):
