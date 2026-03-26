@@ -55,13 +55,17 @@ class SandboxBackend(Enum):
     NAMESPACE = "namespace"
 
 
-class TestOutcome(Enum):
-    """测试结果枚举"""
+class VerdictOutcome(Enum):
+    """验证结果枚举"""
     PASS = "pass"               # 验证通过（漏洞已修复 / 功能正常）
     FAIL = "fail"               # 验证失败（漏洞未修复 / 功能受损）
     ERROR = "error"             # 执行错误
     SKIPPED = "skipped"         # 跳过
     INCONCLUSIVE = "inconclusive"  # 无法确定
+
+
+# 向后兼容别名
+TestOutcome = VerdictOutcome
 
 
 # ============================================================
@@ -211,15 +215,19 @@ class CodeReviewResult:
 # ============================================================
 
 @dataclass
-class TestCaseResult:
+class VerdictResult:
     """单个测试用例执行结果"""
     test_name: str = ""
-    outcome: TestOutcome = TestOutcome.SKIPPED
+    outcome: VerdictOutcome = VerdictOutcome.SKIPPED
     duration_seconds: float = 0.0
     stdout: str = ""
     stderr: str = ""
     return_code: int = -1
     details: str = ""
+
+
+# 向后兼容别名
+TestCaseResult = VerdictResult
 
 
 @dataclass

@@ -438,24 +438,15 @@ class ReportGenerator:
         return "\n".join(lines)
 
     # ----------------------------------------------------------------
-    #  AI 深度分析
-    # ----------------------------------------------------------------
-
-    def _render_ai_analysis_section(
-        self, report: VerificationReport
-    ) -> Optional[str]:
-        """已废弃 — AI 分析现已融入各章节，保留此方法仅为兼容性。"""
-        return None
-
-    # ----------------------------------------------------------------
     #  页脚
     # ----------------------------------------------------------------
 
     def _render_footer(self, report: VerificationReport) -> str:
+        from cve_verifier import __version__
         return "\n".join([
             "---",
             "",
-            f"*本报告由 CVE 补丁自动化验证系统 v1.0 自动生成*",
+            f"*本报告由 CVE 补丁自动化验证系统 v{__version__} 自动生成*",
             f"*生成时间: {report.generated_at}*",
         ])
 

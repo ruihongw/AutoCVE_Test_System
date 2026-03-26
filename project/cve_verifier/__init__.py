@@ -5,5 +5,5 @@ CVE 补丁自动化验证系统 (CVE Patch Automated Verification System)
 进行代码检视、动态触发测试和衍生风险评估。
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __author__ = "CVE Verification Team"

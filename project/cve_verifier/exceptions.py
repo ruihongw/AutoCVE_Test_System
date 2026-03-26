@@ -51,7 +51,7 @@ class DynamicTestError(CVEVerifierError):
         super().__init__(message, stage="动态测试", **kwargs)
 
 
-class EnvironmentError(CVEVerifierError):
+class SandboxEnvironmentError(CVEVerifierError):
     """沙箱环境管理错误"""
 
     def __init__(self, message: str, **kwargs):

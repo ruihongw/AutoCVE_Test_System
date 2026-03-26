@@ -1,3 +1,28 @@
-﻿__pycache__/
-*.pyc
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test / Cache
 .pytest_cache/
+.mypy_cache/
+
+# 生成的报告 (包含运行时数据，不入库)
+verification_report*.md
+ai_report*.md
+verification_history.jsonl
+
+# 环境
+.env
+*.env
+venv/
+.venv/
