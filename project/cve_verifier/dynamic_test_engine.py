@@ -7,6 +7,7 @@
 """
 
 import logging
+import sys
 from typing import Optional
 
 from .models import (
@@ -81,10 +82,24 @@ class DynamicTestEngine:
 
             # 步骤 3: 漏洞触发测试
             if task.poc_available and task.poc_script_path:
-                logger.info("执行漏洞触发测试...")
-                result.vulnerability_test = self._run_vulnerability_test(
-                    sandbox_id, task
-                )
+                if sys.platform != "linux":
+                    logger.warning(
+                        "非 Linux 环境 (%s)，跳过 PoC 实际执行",
+                        sys.platform,
+                    )
+                    result.vulnerability_test = TestCaseResult(
+                        test_name="漏洞触发验证",
+                        outcome=TestOutcome.SKIPPED,
+                        details=(
+                            f"当前为 {sys.platform} 环境，"
+                            "PoC 需在 Linux 内核环境中执行，已跳过"
+                        ),
+                    )
+                else:
+                    logger.info("执行漏洞触发测试...")
+                    result.vulnerability_test = self._run_vulnerability_test(
+                        sandbox_id, task
+                    )
 
             # 步骤 4: 基础功能回归
             logger.info("执行基础功能回归...")

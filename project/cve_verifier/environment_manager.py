@@ -13,6 +13,7 @@
 """
 
 import logging
+import sys
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -187,14 +188,31 @@ class EnvironmentManager:
     def __init__(self, driver: Optional[SandboxBackendDriver] = None):
         """
         Args:
-            driver: 沙箱后端驱动。未提供时使用默认模拟驱动。
+            driver: 沙箱后端驱动。未提供时根据平台自动选择:
+                    - Linux → LinuxSandboxDriver (真实执行)
+                    - 其他  → DefaultSandboxDriver (模拟执行)
         """
-        self._driver = driver or DefaultSandboxDriver()
+        if driver is not None:
+            self._driver = driver
+        elif sys.platform == "linux":
+            from .linux_sandbox_driver import LinuxSandboxDriver
+            self._driver = LinuxSandboxDriver()
+            logger.info("检测到 Linux 环境，使用真实沙箱驱动")
+        else:
+            self._driver = DefaultSandboxDriver()
+            logger.info(
+                "当前平台 %s，使用模拟沙箱驱动", sys.platform
+            )
         self._active_sandboxes: List[str] = []
 
     @property
     def driver(self) -> SandboxBackendDriver:
         return self._driver
+
+    @property
+    def is_real_sandbox(self) -> bool:
+        """是否为真实沙箱驱动 (非模拟)。"""
+        return not isinstance(self._driver, DefaultSandboxDriver)
 
     def create(self, config: Optional[Dict] = None) -> str:
         """创建新的隔离沙箱。"""
