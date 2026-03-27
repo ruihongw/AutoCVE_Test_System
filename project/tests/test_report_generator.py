@@ -123,7 +123,7 @@ class TestReportGenerator(unittest.TestCase):
         )
         content = self.generator.generate(report)
         self.assertIn("动态测试结果", content)
-        self.assertNotIn("代码检视结论", content)
+        self.assertIn("代码检视结论", content)  # 所有路径均渲染代码检视
 
     def test_hybrid_report_contains_both(self):
         """双路径报告包含代码检视和动态测试"""

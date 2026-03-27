@@ -56,17 +56,19 @@ class ReportGenerator:
         has_ai_conclusion = report.ai_conclusion is not None
         self._has_any_ai = has_ai_review or has_ai_conclusion
 
-        # 根据验证路径渲染对应章节（AI 分析融入各章节）
-        route = report.verification_route
-        if route in (VerificationRoute.CODE_REVIEW_ONLY, VerificationRoute.HYBRID):
-            sections.append(self._render_code_review_section(report))
+        # 动态章节编号（避免跳号）
+        self._section_num = 2  # §1=概览, §2=分流 已渲染
 
+        # 代码检视 — 所有路径均渲染（DYNAMIC_ONLY 显示简短说明）
+        sections.append(self._render_code_review_section(report))
+
+        # 动态测试 — 仅 DYNAMIC_ONLY 和 HYBRID
+        route = report.verification_route
         if route in (VerificationRoute.DYNAMIC_ONLY, VerificationRoute.HYBRID):
             sections.append(self._render_dynamic_test_section(report))
 
-        # 衍生风险（规则引擎 + AI 合并）
-        if route in (VerificationRoute.CODE_REVIEW_ONLY, VerificationRoute.HYBRID):
-            sections.append(self._render_regression_risk_section(report))
+        # 衍生风险 — 所有路径均渲染
+        sections.append(self._render_regression_risk_section(report))
 
         sections.append(self._render_conclusion(report))
         sections.append(self._render_footer(report))
@@ -171,8 +173,14 @@ class ReportGenerator:
     #  代码检视
     # ----------------------------------------------------------------
 
+    def _next_section(self) -> int:
+        """返回下一个章节编号。"""
+        self._section_num += 1
+        return self._section_num
+
     def _render_code_review_section(self, report: VerificationReport) -> str:
-        lines = ["## 3. 代码检视结论", ""]
+        sn = self._next_section()
+        lines = [f"## {sn}. 代码检视结论", ""]
 
         cr = report.code_review_result
         if not cr:
@@ -242,7 +250,8 @@ class ReportGenerator:
     # ----------------------------------------------------------------
 
     def _render_dynamic_test_section(self, report: VerificationReport) -> str:
-        lines = ["## 4. 动态测试结果", ""]
+        sn = self._next_section()
+        lines = [f"## {sn}. 动态测试结果", ""]
 
         dt = report.dynamic_test_result
         if not dt:
@@ -289,7 +298,8 @@ class ReportGenerator:
     def _render_regression_risk_section(
         self, report: VerificationReport
     ) -> str:
-        lines = ["## 5. 衍生风险评估（防劣化）", ""]
+        sn = self._next_section()
+        lines = [f"## {sn}. 衍生风险评估（防劣化）", ""]
 
         cr = report.code_review_result
         rule_risks = cr.regression_risks if cr else []
@@ -390,7 +400,8 @@ class ReportGenerator:
     # ----------------------------------------------------------------
 
     def _render_conclusion(self, report: VerificationReport) -> str:
-        lines = ["## 6. 综合结论", ""]
+        sn = self._next_section()
+        lines = [f"## {sn}. 综合结论", ""]
 
         lines.append(f"**结论**: {report.overall_conclusion}")
         lines.append(f"**综合风险等级**: {self._risk_badge(report.overall_risk_level)}")
