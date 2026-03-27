@@ -61,6 +61,34 @@ class DynamicTestEngine:
         sandbox_id = None
         result = DynamicTestResult()
 
+        # ────────────────────────────────────────────────
+        # 平台检测: 非 Linux 环境跳过所有动态测试
+        # ────────────────────────────────────────────────
+        if sys.platform != "linux":
+            logger.warning(
+                "当前为 %s 环境，所有动态测试跳过（需在 Linux 内核环境下执行）",
+                sys.platform,
+            )
+            platform_notice = (
+                f"当前为 {sys.platform} 环境，动态测试需在 Linux "
+                "内核环境中执行，已全部跳过。请在 Linux 6.6+ 内核"
+                "环境下重新运行以获取真实测试结果。"
+            )
+            if task.poc_available and task.poc_script_path:
+                result.vulnerability_test = TestCaseResult(
+                    test_name="漏洞触发验证",
+                    outcome=TestOutcome.SKIPPED,
+                    details=platform_notice,
+                )
+            result.overall_outcome = TestOutcome.SKIPPED
+            result.summary = (
+                f"动态测试已跳过 — {sys.platform} 环境不支持"
+                "内核级 PoC 执行和功能回归测试"
+            )
+            result.environment_info["platform"] = sys.platform
+            result.environment_info["skipped_reason"] = "non-linux"
+            return result
+
         try:
             # 步骤 1: 创建沙箱
             logger.info("创建隔离沙箱...")
@@ -82,24 +110,10 @@ class DynamicTestEngine:
 
             # 步骤 3: 漏洞触发测试
             if task.poc_available and task.poc_script_path:
-                if sys.platform != "linux":
-                    logger.warning(
-                        "非 Linux 环境 (%s)，跳过 PoC 实际执行",
-                        sys.platform,
-                    )
-                    result.vulnerability_test = TestCaseResult(
-                        test_name="漏洞触发验证",
-                        outcome=TestOutcome.SKIPPED,
-                        details=(
-                            f"当前为 {sys.platform} 环境，"
-                            "PoC 需在 Linux 内核环境中执行，已跳过"
-                        ),
-                    )
-                else:
-                    logger.info("执行漏洞触发测试...")
-                    result.vulnerability_test = self._run_vulnerability_test(
-                        sandbox_id, task
-                    )
+                logger.info("执行漏洞触发测试...")
+                result.vulnerability_test = self._run_vulnerability_test(
+                    sandbox_id, task
+                )
 
             # 步骤 4: 基础功能回归
             logger.info("执行基础功能回归...")

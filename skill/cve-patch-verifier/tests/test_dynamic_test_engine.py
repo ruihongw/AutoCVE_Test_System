@@ -129,22 +129,39 @@ class TestDynamicTestEngine(unittest.TestCase):
         engine = DynamicTestEngine()
         task = self._make_task(poc_available=False)
         result = engine.run(task)
-        self.assertIsNone(result.vulnerability_test)
+        import sys
+        if sys.platform != "linux":
+            # Windows: 整个动态测试跳过
+            self.assertEqual(result.overall_outcome, TestOutcome.SKIPPED)
+        else:
+            self.assertIsNone(result.vulnerability_test)
 
     def test_run_with_poc(self):
         """有 PoC 时执行漏洞触发测试"""
         engine = DynamicTestEngine()
         task = self._make_task(poc_available=True)
         result = engine.run(task)
-        # 默认驱动模拟执行返回 0 → PoC 触发成功 → FAIL (漏洞未修复)
-        self.assertIsNotNone(result.vulnerability_test)
+        import sys
+        if sys.platform != "linux":
+            # Windows: PoC 标记为 SKIPPED
+            self.assertIsNotNone(result.vulnerability_test)
+            self.assertEqual(
+                result.vulnerability_test.outcome, TestOutcome.SKIPPED
+            )
+        else:
+            self.assertIsNotNone(result.vulnerability_test)
 
     def test_run_with_package(self):
         """有软件包时执行部署"""
         engine = DynamicTestEngine()
         task = self._make_task(package_path="/tmp/pkg.rpm")
         result = engine.run(task)
-        self.assertIn("sandbox_id", result.environment_info)
+        import sys
+        if sys.platform != "linux":
+            # Windows: 跳过，不创建沙箱
+            self.assertIn("skipped_reason", result.environment_info)
+        else:
+            self.assertIn("sandbox_id", result.environment_info)
 
     def test_determine_overall_outcome_all_pass(self):
         """全部通过时综合结果为 PASS"""
@@ -180,6 +197,10 @@ class TestDynamicTestEngine(unittest.TestCase):
 
     def test_sandbox_cleanup_on_success(self):
         """成功后沙箱被清理"""
+        import sys
+        if sys.platform != "linux":
+            # Windows: 不创建沙箱，无需清理
+            return
         driver = DefaultSandboxDriver()
         manager = EnvironmentManager(driver=driver)
         engine = DynamicTestEngine(env_manager=manager)
